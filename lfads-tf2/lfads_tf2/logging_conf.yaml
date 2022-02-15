@@ -1,0 +1,37 @@
+# Configures the logging module for `lfads_tf2`
+# https://docs.python.org/3/library/logging.config.html#configuration-dictionary-schema
+version: 1
+formatters:
+  console_fmt:
+    format: '%(message)s'
+  file_fmt:
+    format: '%(asctime)s %(levelname)s: %(message)s'
+  csv_fmt:
+    format: '%(message)s'
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: INFO # may be set to WARNING to avoid excessive output
+    formatter: console_fmt
+    stream: ext://sys.stdout
+  logfile:
+    class: logging.FileHandler
+    level: INFO
+    formatter: file_fmt
+    filename: '' # file location determined by LFADS config
+  csv:
+    class: logging.FileHandler
+    level: INFO
+    formatter: csv_fmt
+    filename: '' # file location determined by LFADS config
+loggers:
+  lfads: # handles the lfads console output
+    level: INFO
+    handlers: 
+      - console
+      - logfile
+  train_csv: # handles saving training metrics
+    level: INFO
+    handlers:
+      - csv
+disable_existing_loggers: False

@@ -1,0 +1,49 @@
+# Config for Jango
+MODEL:
+  DATA_DIM: 100
+  SEQ_LEN: 20
+  READIN_DIM: -1
+  IC_ENC_DIM: 100
+  CI_ENC_DIM: 100
+  CON_DIM: 100
+  CO_DIM: 4
+  IC_DIM: 100
+  GEN_DIM: 100
+  FAC_DIM: 30
+  DROPOUT_RATE: 0.05
+  CD_RATE: 0.25
+  CD_PASS_RATE: 0.0
+  SV_RATE: 0.25
+  CO_PRIOR_TAU: 10.0
+  CO_PRIOR_NVAR: 0.1
+  IC_PRIOR_VAR: 0.1
+  IC_POST_VAR_MIN: 1.0e-4
+TRAIN:
+  DATA:
+    DIR: /snel/share/runs/nomad/Jango_data_chopped_4_nocorr
+    PREFIX: lfads
+  PATIENCE: 150
+  BATCH_SIZE: 512
+  MAX_EPOCHS: 10000
+  MAX_GRAD_NORM: 200.0
+  LOSS_SCALE: 10000.0
+  LR: 
+    INIT: 0.001
+    STOP: 1.0e-10
+    DECAY: 1.0
+    PATIENCE: 6
+  L2:
+    START_EPOCH: 0
+    INCREASE_EPOCH: 100
+    IC_ENC_SCALE: 0.0
+    CI_ENC_SCALE: 0.0
+    GEN_SCALE: 1.0e-6
+    CON_SCALE: 1.0e-6
+  KL:
+    START_EPOCH: 0
+    INCREASE_EPOCH: 100
+    IC_WEIGHT: 1.0e-6
+    CO_WEIGHT:  1.0e-6
+  USE_TB: true
+  MODEL_DIR: ~/tmp/lfads_tf2/jango
+  OVERWRITE: true

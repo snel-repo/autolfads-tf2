@@ -1,0 +1,45 @@
+# Config for Lorenz with Regularization
+MODEL:
+  DATA_DIM: 29
+  SEQ_LEN: 50
+  IC_ENC_DIM: 100
+  CI_ENC_DIM: 64
+  CON_DIM: 64
+  CO_DIM: 1
+  IC_DIM: 100
+  GEN_DIM: 100
+  FAC_DIM: 40
+  DROPOUT_RATE: 0.05
+  CD_RATE: 0.35
+  CD_PASS_RATE: 0.0
+  CO_PRIOR_TAU: 10.0
+  CO_PRIOR_NVAR: 0.1
+  IC_PRIOR_VAR: 0.1
+  IC_POST_VAR_MIN: 1.0e-4
+TRAIN:
+  DATA:
+    DIR: /snel/share/data/lfads_lorenz_20ms
+    PREFIX: lfads
+  PATIENCE: 150
+  BATCH_SIZE: 500
+  MAX_EPOCHS: 10000
+  MAX_GRAD_NORM: 200.0
+  LOSS_SCALE: 1.0
+  LR: 
+    INIT: 1.0e-2
+    DECAY: 1.0
+  L2:
+    START_EPOCH: 0
+    INCREASE_EPOCH: 80
+    IC_ENC_SCALE: 0.0
+    CI_ENC_SCALE: 0.0
+    GEN_SCALE: 2.25e-5
+    CON_SCALE: 3.00e-4
+  KL:
+    START_EPOCH: 0
+    INCREASE_EPOCH: 80
+    IC_WEIGHT: 6.65e-7
+    CO_WEIGHT: 5.00e-5
+  USE_TB: True
+  MODEL_DIR: ~/tmp/lfads_tf2/lorenz
+  OVERWRITE: True
