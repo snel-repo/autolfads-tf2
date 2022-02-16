@@ -3,11 +3,11 @@
 version: 1
 formatters:
   console_fmt:
-    format: '%(message)s'
+    format: "%(message)s"
   file_fmt:
-    format: '%(asctime)s %(levelname)s: %(message)s'
+    format: "%(asctime)s %(levelname)s: %(message)s"
   csv_fmt:
-    format: '%(message)s'
+    format: "%(message)s"
 handlers:
   console:
     class: logging.StreamHandler
@@ -18,16 +18,16 @@ handlers:
     class: logging.FileHandler
     level: INFO
     formatter: file_fmt
-    filename: '' # file location determined by LFADS config
+    filename: "" # file location determined by LFADS config
   csv:
     class: logging.FileHandler
     level: INFO
     formatter: csv_fmt
-    filename: '' # file location determined by LFADS config
+    filename: "" # file location determined by LFADS config
 loggers:
   lfads: # handles the lfads console output
     level: INFO
-    handlers: 
+    handlers:
       - console
       - logfile
   train_csv: # handles saving training metrics

@@ -1,7 +1,4 @@
-from setuptools import setup, find_packages
-
-# TODO: add cudatoolkit 
-# conda install -c anaconda cudatoolkit
+from setuptools import find_packages, setup
 
 setup(
     name="lfads_tf2",

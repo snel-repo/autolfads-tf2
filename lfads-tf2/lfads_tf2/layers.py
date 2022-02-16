@@ -1,17 +1,19 @@
 import numpy as np
-import collections
 import tensorflow as tf
-from tensorflow.keras.initializers import VarianceScaling
-from tensorflow.keras.layers import Dropout, Layer, Dense, GRUCell, RNN, Bidirectional
-from tensorflow.keras import Model
 import tensorflow_probability as tfp
+from lfads_tf2.initializers import make_variance_scaling, ones_zeros, variance_scaling
+from lfads_tf2.regularizers import DynamicL2
+from lfads_tf2.tuples import (
+    DecoderInput,
+    DecoderOutput,
+    DecoderRNNInput,
+    DecoderState,
+    EncoderOutput,
+)
+from tensorflow.keras.layers import RNN, Bidirectional, Dense, Dropout, GRUCell, Layer
+
 tfd = tfp.distributions
 tfb = tfp.bijectors
-
-from lfads_tf2.regularizers import DynamicL2
-from lfads_tf2.tuples import EncoderOutput, DecoderInput, \
-    DecoderRNNInput, DecoderState, DecoderOutput
-from lfads_tf2.initializers import variance_scaling, make_variance_scaling, ones_zeros
 
 
 class Encoder(Layer):
@@ -21,8 +23,9 @@ class Encoder(Layer):
     conditions for a generator network and a sequence of inputs to a controller
     network. Note that `Encoder` is a subclass of `tensorflow.keras.Model`.
     """
+
     def __init__(self, cfg_node):
-        """ Initializes an `Encoder` object. If no controller is used,
+        """Initializes an `Encoder` object. If no controller is used,
             the encoder will output only initial conditions.
 
         Parameters
@@ -37,11 +40,13 @@ class Encoder(Layer):
         # create the dropout layer
         self.dropout_rate = tf.Variable(mcfg.DROPOUT_RATE, trainable=False)
         self.dropout = Dropout(self.dropout_rate)
-        self.use_con = all([
-            mcfg.CI_ENC_DIM > 0,
-            mcfg.CON_DIM > 0,
-            mcfg.CO_DIM > 0,
-        ])
+        self.use_con = all(
+            [
+                mcfg.CI_ENC_DIM > 0,
+                mcfg.CON_DIM > 0,
+                mcfg.CO_DIM > 0,
+            ]
+        )
 
         if self.use_con:
             # create the controller input BiGRU layer
@@ -53,13 +58,13 @@ class Encoder(Layer):
                 bias_initializer=ones_zeros(ci_enc_dim),
                 recurrent_regularizer=DynamicL2(cfg_node.TRAIN.L2.CI_ENC_SCALE),
                 reset_after=False,
-                name='ci_enc_gru_cell',
+                name="ci_enc_gru_cell",
                 clip_value=mcfg.CELL_CLIP,
             )
             self.ci_enc_bigru = Bidirectional(
                 RNN(ci_enc_cell, return_sequences=True),
                 merge_mode=None,
-                name='ci_enc_bigru',
+                name="ci_enc_bigru",
             )
         # create the initial condition BiGRU layer
         ic_enc_dim = mcfg.IC_ENC_DIM
@@ -70,38 +75,37 @@ class Encoder(Layer):
             bias_initializer=ones_zeros(ic_enc_dim),
             recurrent_regularizer=DynamicL2(cfg_node.TRAIN.L2.IC_ENC_SCALE),
             reset_after=False,
-            name='ic_enc_gru_cell',
+            name="ic_enc_gru_cell",
             clip_value=mcfg.CELL_CLIP,
         )
-        self.ic_enc_bigru = Bidirectional(RNN(ic_enc_cell), name='ic_enc_bigru')
+        self.ic_enc_bigru = Bidirectional(RNN(ic_enc_cell), name="ic_enc_bigru")
         # create the linear mappings to mean and logvar of initial conditions
         self.ic_mean_linear = Dense(
-            mcfg.IC_DIM, 
-            kernel_initializer=variance_scaling, 
-            name='ic_mean_linear')
+            mcfg.IC_DIM, kernel_initializer=variance_scaling, name="ic_mean_linear"
+        )
         self.ic_logvar_linear = Dense(
-            mcfg.IC_DIM, 
-            kernel_initializer=variance_scaling, 
-            name='ic_logvar_linear')
+            mcfg.IC_DIM, kernel_initializer=variance_scaling, name="ic_logvar_linear"
+        )
 
         # ===== AUTOGRAPH FUNCTIONS =====
         if mcfg.READIN_DIM > 0:
             data_shape = [None, mcfg.SEQ_LEN, mcfg.READIN_DIM]
         else:
             data_shape = [None, mcfg.SEQ_LEN, mcfg.DATA_DIM]
-        ic_shape = [None, mcfg.IC_DIM]
         self.graph_call = tf.function(
             func=self.call,
             input_signature=[
                 tf.TensorSpec(shape=data_shape),
-                tf.TensorSpec(shape=[], dtype=tf.bool)])
+                tf.TensorSpec(shape=[], dtype=tf.bool),
+            ],
+        )
 
     def build(self, input_shape):
         """Initializes the layer's variables.
 
         This method is overridden to handle creation of variables
         for the hidden states. It is called as soon as the model
-        learns of the shape of its inputs. We use it here to 
+        learns of the shape of its inputs. We use it here to
         initialize the initial state variables.
 
         Parameters
@@ -113,23 +117,23 @@ class Encoder(Layer):
 
         # create the trainable initial states of the bigru layers
         self.ic_enc_h0 = tf.Variable(
-            tf.zeros((1, 2, node.MODEL.IC_ENC_DIM)), 
-            name='ic_enc_bigru/h0')
+            tf.zeros((1, 2, node.MODEL.IC_ENC_DIM)), name="ic_enc_bigru/h0"
+        )
         if self.use_con:
             self.ci_enc_h0 = tf.Variable(
-                tf.zeros((1, 2, node.MODEL.CI_ENC_DIM)), 
-                name='ci_enc_bigru/h0')
+                tf.zeros((1, 2, node.MODEL.CI_ENC_DIM)), name="ci_enc_bigru/h0"
+            )
 
         super(Encoder, self).build(input_shape)
 
     def call(self, data, training=False):
-        """ Performs the forward pass on the `Encoder` object.
+        """Performs the forward pass on the `Encoder` object.
 
         Parameters
         ----------
         data : np.array or tf.Tensor
-            An B x T x N tensor of spike counts, where B is the 
-            batch dimension, T is the sequence length, and N is the 
+            An B x T x N tensor of spike counts, where B is the
+            batch dimension, T is the sequence length, and N is the
             number of neurons.
         training : bool, optional
             Whether to run the network in training mode, by default False
@@ -137,8 +141,8 @@ class Encoder(Layer):
         Returns
         -------
         lfads_tf2.tuples.EncoderOutput
-            A namedtuple containing the outputs of the Encoder, 
-            including the initial condition means and standard 
+            A namedtuple containing the outputs of the Encoder,
+            including the initial condition means and standard
             deviations, as well as the controller inputs.
 
         """
@@ -146,16 +150,17 @@ class Encoder(Layer):
         mcfg = self.cfg_node.MODEL
         # check that the correct sequence length has been specified
         seq_len = mcfg.SEQ_LEN
-        assert data.shape[1] == seq_len, \
-            f"Sequence length specified in HPs ({seq_len}) " \
+        assert data.shape[1] == seq_len, (
+            f"Sequence length specified in HPs ({seq_len}) "
             "must match data dim 1 ({data.shape[1]})."
+        )
 
         # compute the generator IC's
         data = self.dropout(data, training)
         # option to use separate segment for IC encoding
         if mcfg.IC_ENC_SEQ_LEN > 0:
-            ic_enc_data = data[:, :mcfg.IC_ENC_SEQ_LEN, :]
-            ci_enc_data = data[:, mcfg.IC_ENC_SEQ_LEN:, :]
+            ic_enc_data = data[:, : mcfg.IC_ENC_SEQ_LEN, :]
+            ci_enc_data = data[:, mcfg.IC_ENC_SEQ_LEN :, :]
         else:
             ic_enc_data = data
             ci_enc_data = data
@@ -178,12 +183,15 @@ class Encoder(Layer):
             ci_fwd = tf.pad(ci_fwd, [[0, 0], [mcfg.CI_LAG, 0], [0, 0]])
             ci_bwd = tf.pad(ci_bwd, [[0, 0], [0, mcfg.CI_LAG], [0, 0]])
             # merge the forward and backward passes
-            ci = tf.concat([
-                ci_fwd[:,:ci_len, :],
-                ci_bwd[:,-ci_len:, :],
-            ], axis=-1)
+            ci = tf.concat(
+                [
+                    ci_fwd[:, :ci_len, :],
+                    ci_bwd[:, -ci_len:, :],
+                ],
+                axis=-1,
+            )
         else:
-            ci = tf.zeros_like(ci_enc_data)[:, :, :2*mcfg.CI_ENC_DIM]
+            ci = tf.zeros_like(ci_enc_data)[:, :, : 2 * mcfg.CI_ENC_DIM]
 
         # return the output in an organized tuple
         output = EncoderOutput(
@@ -194,9 +202,9 @@ class Encoder(Layer):
         return output
 
     def get_config(self):
-        """ Get the configuration for the Encoder.
+        """Get the configuration for the Encoder.
 
-        See the TensorFlow documentation for an explanation of serialization: 
+        See the TensorFlow documentation for an explanation of serialization:
         https://www.tensorflow.org/guide/keras/save_and_serialize#custom_objects
 
         Returns
@@ -204,15 +212,15 @@ class Encoder(Layer):
         dict
             A dictionary containing the configuration node.
         """
-        return {'cfg_node': self.cfg_node}
+        return {"cfg_node": self.cfg_node}
 
     @classmethod
     def from_config(cls, config):
-        """ Initialize an Encoder from this config.
+        """Initialize an Encoder from this config.
 
-        See the TensorFlow documentation for an explanation of serialization: 
+        See the TensorFlow documentation for an explanation of serialization:
         https://www.tensorflow.org/guide/keras/save_and_serialize#custom_objects
-        
+
         Returns
         -------
         lfads_tf2.layers.Encoder
@@ -222,8 +230,8 @@ class Encoder(Layer):
 
     def update_config(self, config):
         """Updates the configuration of the Encoder.
-        
-        Updates configuration variables of the model. 
+
+        Updates configuration variables of the model.
         Primarily used for updating hyperparameters during PBT.
 
         Parameters
@@ -233,33 +241,36 @@ class Encoder(Layer):
 
         """
 
-        self.cfg_node = node = config['cfg_node']
+        self.cfg_node = node = config["cfg_node"]
         self.dropout_rate.assign(node.MODEL.DROPOUT_RATE)
         ic_enc_update = {
-            'clip_value': node.MODEL.CELL_CLIP,
-            'l2_recurrent_weight': node.TRAIN.L2.IC_ENC_SCALE}
+            "clip_value": node.MODEL.CELL_CLIP,
+            "l2_recurrent_weight": node.TRAIN.L2.IC_ENC_SCALE,
+        }
         self.ic_enc_bigru.forward_layer.cell.update_config(ic_enc_update)
         self.ic_enc_bigru.backward_layer.cell.update_config(ic_enc_update)
         if self.use_con:
             ci_enc_update = {
-                'clip_value': node.MODEL.CELL_CLIP,
-                'l2_recurrent_weight': node.TRAIN.L2.CI_ENC_SCALE}
+                "clip_value": node.MODEL.CELL_CLIP,
+                "l2_recurrent_weight": node.TRAIN.L2.CI_ENC_SCALE,
+            }
             self.ci_enc_bigru.forward_layer.cell.update_config(ci_enc_update)
             self.ci_enc_bigru.backward_layer.cell.update_config(ci_enc_update)
 
 
 class Decoder(Layer):
     """
-    Defines the LFADS decoder, which takes as input batches 
-    of samples from the initial condition posterior and, 
-    optionally, controller inputs. It evolves interacting 
-    controller and generator networks using these inputs and 
-    converts them to a sequence of controller output posterior 
-    distributions, generator states, factors, and Poisson rates. 
+    Defines the LFADS decoder, which takes as input batches
+    of samples from the initial condition posterior and,
+    optionally, controller inputs. It evolves interacting
+    controller and generator networks using these inputs and
+    converts them to a sequence of controller output posterior
+    distributions, generator states, factors, and Poisson rates.
     Note that `Decoder` is a subclass of `tensorflow.keras.Layer`.
     """
+
     def __init__(self, cfg_node):
-        """ Initializes a `Decoder` object.
+        """Initializes a `Decoder` object.
 
         Parameters
         ----------
@@ -273,71 +284,71 @@ class Decoder(Layer):
         mcfg = cfg_node.MODEL
 
         # create the dropout layer
-        self.dropout_rate = tf.Variable(
-            mcfg.DROPOUT_RATE, trainable=False)
+        self.dropout_rate = tf.Variable(mcfg.DROPOUT_RATE, trainable=False)
         self.dropout = Dropout(self.dropout_rate)
 
-        self.use_con = all([
-            mcfg.CI_ENC_DIM > 0,
-            mcfg.CON_DIM > 0,
-            mcfg.CO_DIM > 0,
-        ])
+        self.use_con = all(
+            [
+                mcfg.CI_ENC_DIM > 0,
+                mcfg.CON_DIM > 0,
+                mcfg.CO_DIM > 0,
+            ]
+        )
         # create the linear mapping from ICs to gen_state
         self.ic_to_g0 = Dense(
-            mcfg.GEN_DIM, 
-            kernel_initializer=variance_scaling, 
-            name='ic_to_g0')
+            mcfg.GEN_DIM, kernel_initializer=variance_scaling, name="ic_to_g0"
+        )
         # create the decoder RNN cell
         cell = DecoderCell(cfg_node)
         # create the decoding RNN
-        self.rnn = RNN(cell, return_sequences=True, name='rnn')
+        self.rnn = RNN(cell, return_sequences=True, name="rnn")
         # create the mapping from factors to rates
-        self.rate_linear = Dense(mcfg.DATA_DIM,
-            kernel_initializer=variance_scaling,
-            name='rate_linear'
+        self.rate_linear = Dense(
+            mcfg.DATA_DIM, kernel_initializer=variance_scaling, name="rate_linear"
         )
 
         # ===== AUTOGRAPH FUNCTIONS =====
         output_seq_len = mcfg.SEQ_LEN - mcfg.IC_ENC_SEQ_LEN
         ic_shape = [None, mcfg.IC_DIM]
         ci_shape = [None, output_seq_len, mcfg.CI_ENC_DIM * 2]
-        co_shape =[None, output_seq_len, mcfg.CO_DIM]
         ext_input_shape = [None, output_seq_len, mcfg.EXT_INPUT_DIM]
         self.graph_call = tf.function(
             func=self.call,
             input_signature=[
                 DecoderInput(
-                    tf.TensorSpec(shape=ic_shape), 
-                    tf.TensorSpec(shape=ci_shape), 
-                    tf.TensorSpec(shape=ext_input_shape)),
+                    tf.TensorSpec(shape=ic_shape),
+                    tf.TensorSpec(shape=ci_shape),
+                    tf.TensorSpec(shape=ext_input_shape),
+                ),
                 tf.TensorSpec(shape=[], dtype=tf.bool),
-                tf.TensorSpec(shape=[], dtype=tf.bool)])
+                tf.TensorSpec(shape=[], dtype=tf.bool),
+            ],
+        )
 
     def call(self, dec_input, training=False, use_logrates=False):
-        """ Performs the forward pass on the `Decoder` object.
+        """Performs the forward pass on the `Decoder` object.
 
         Parameters
         ----------
         dec_input : lfads_tf2.tuples.DecoderInput
             A namedtuple containing a batch of inputs to the decoder,
-            Including samples from the IC distributions, controller 
-            inputs, and external inputs. See fields of DecoderInput 
+            Including samples from the IC distributions, controller
+            inputs, and external inputs. See fields of DecoderInput
             for more detail.
         training :  bool, optional
             Whether to run the decoder in training mode.
         use_logrates : bool, optional
-            Whether to return logrates, which are helpful for 
+            Whether to return logrates, which are helpful for
             numerical stability of loss during training.
 
         Returns
         -------
         lfads_tf2.tuples.DecoderOutput
-            All tensors output from the decoder. See fields of 
+            All tensors output from the decoder. See fields of
             DecoderOutput for more detail.
 
         """
 
-        batch_size = tf.shape(dec_input.ic_samp)[0]
         # calculate initial generator state and pass it to the RNN with dropout rate
         gen_init = self.ic_to_g0(dec_input.ic_samp)
         gen_init_drop = self.dropout(gen_init, training)
@@ -345,9 +356,7 @@ class Decoder(Layer):
         # perform dropout on the external inputs
         ext_input_drop = self.dropout(dec_input.ext_input, training)
         # prepare the decoder inputs and pass them to the rnn
-        dec_rnn_input = DecoderRNNInput(
-            ci=dec_input.ci, 
-            ext_input=ext_input_drop)
+        dec_rnn_input = DecoderRNNInput(ci=dec_input.ci, ext_input=ext_input_drop)
         states = self.rnn(dec_rnn_input, training=training)
         # separate the outputs of the decoder RNN
         gen_states, con_states, co_means, co_logvars, gen_inputs, factors = states
@@ -370,9 +379,9 @@ class Decoder(Layer):
         return output
 
     def get_config(self):
-        """ Get the configuration for the Decoder.
+        """Get the configuration for the Decoder.
 
-        See the TensorFlow documentation for an explanation of serialization: 
+        See the TensorFlow documentation for an explanation of serialization:
         https://www.tensorflow.org/guide/keras/save_and_serialize#custom_objects
 
         Returns
@@ -381,15 +390,15 @@ class Decoder(Layer):
             A dictionary containing the configuration node.
         """
 
-        return {'cfg_node': self.cfg_node}
+        return {"cfg_node": self.cfg_node}
 
     @classmethod
     def from_config(cls, config):
-        """ Initialize a Decoder from this config.
+        """Initialize a Decoder from this config.
 
-        See the TensorFlow documentation for an explanation of serialization: 
+        See the TensorFlow documentation for an explanation of serialization:
         https://www.tensorflow.org/guide/keras/save_and_serialize#custom_objects
-        
+
         Returns
         -------
         lfads_tf2.layers.Decoder
@@ -400,8 +409,8 @@ class Decoder(Layer):
 
     def update_config(self, config):
         """Updates the configuration of the Decoder.
-        
-        Updates configuration variables of the model. 
+
+        Updates configuration variables of the model.
         Primarily used for updating hyperparameters during PBT.
 
         Parameters
@@ -411,28 +420,25 @@ class Decoder(Layer):
 
         """
 
-        self.cfg_node = node = config['cfg_node']
+        self.cfg_node = node = config["cfg_node"]
         self.dropout_rate.assign(node.MODEL.DROPOUT_RATE)
         self.rnn.cell.update_config(config)
 
 
 class ClippedGRUCell(GRUCell):
-    """ Adds hidden state clipping, trainable initial states, and dynamic 
-    L2 penalty to the GRUCell implementation. Refer to tf.keras.GRUCell 
-    docs for args. 
+    """Adds hidden state clipping, trainable initial states, and dynamic
+    L2 penalty to the GRUCell implementation. Refer to tf.keras.GRUCell
+    docs for args.
     """
-    def __init__(self,
-                 *args,
-                 clip_value=np.inf,
-                 train_h0=False,
-                 **kwargs):
-        """Creates a GRUCell with hidden state clipping and 
+
+    def __init__(self, *args, clip_value=np.inf, train_h0=False, **kwargs):
+        """Creates a GRUCell with hidden state clipping and
         trainable hidden states.
 
         Parameters
         ----------
         clip_value : float, optional
-            The value at which to clip the hidden states of the 
+            The value at which to clip the hidden states of the
             GRUCell, by default np.inf
         train_h0 : bool, optional
             Whether to use a trainable initial state, by default False
@@ -442,23 +448,23 @@ class ClippedGRUCell(GRUCell):
         self.train_h0 = train_h0
         # the GRUCell class applies the regularization
         super(ClippedGRUCell, self).__init__(*args, **kwargs)
-        # TODO: find a better place to put this, where scope is perserved... 
-        # I wanted to put it in the build function, but there appear to be 
-        # cases in the bidirectional wrapper where get_initial_state is 
+        # TODO: find a better place to put this, where scope is perserved...
+        # I wanted to put it in the build function, but there appear to be
+        # cases in the bidirectional wrapper where get_initial_state is
         # called before build.
-        if self.train_h0: 
+        if self.train_h0:
             with tf.name_scope(self.name_scope()):
                 self.cell_h0 = self.add_weight(
                     shape=(1, self.units),
-                    name='h0',
-                    initializer='zeros',
+                    name="h0",
+                    initializer="zeros",
                 )
 
     def call(self, *args, **kwargs):
         """Performs one forward pass of the GRUCell.
 
         This function is a wrapper around tf.keras.layers.GRUCell.call
-        that clips the value of the hidden state after every forward 
+        that clips the value of the hidden state after every forward
         pass through the cell. Arguments are identical to the superclass.
         """
         h, _ = super(ClippedGRUCell, self).call(*args, **kwargs)
@@ -472,14 +478,14 @@ class ClippedGRUCell(GRUCell):
         that returns the trainable initial state if requested.
         """
         if self.train_h0:
-            return tf.tile(self.cell_h0, [kwargs['batch_size'], 1])
+            return tf.tile(self.cell_h0, [kwargs["batch_size"], 1])
         else:
             return super(ClippedGRUCell, self).get_initial_state(**kwargs)
 
     def get_config(self):
-        """ Get the configuration for the ClippedGRUCell.
+        """Get the configuration for the ClippedGRUCell.
 
-        See the TensorFlow documentation for an explanation of serialization: 
+        See the TensorFlow documentation for an explanation of serialization:
         https://www.tensorflow.org/guide/keras/save_and_serialize#custom_objects
 
         Returns
@@ -489,38 +495,39 @@ class ClippedGRUCell(GRUCell):
         """
 
         config = {
-            'clip_value': self.clip_value.numpy(),
-            'train_h0': self.train_h0,
+            "clip_value": self.clip_value.numpy(),
+            "train_h0": self.train_h0,
         }
         base_config = super(GRUCell, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
     @classmethod
     def from_config(cls, config):
-        """ Initialize a ClippedGRUCell from this config.
+        """Initialize a ClippedGRUCell from this config.
 
-        See the TensorFlow documentation for an explanation of serialization: 
+        See the TensorFlow documentation for an explanation of serialization:
         https://www.tensorflow.org/guide/keras/save_and_serialize#custom_objects
-        
+
         Returns
         -------
         lfads_tf2.layers.ClippedGRUCell
             A ClippedGRUCell from this config node.
         """
 
-        from tensorflow.python.keras.layers import deserialize  # pylint: disable=g-import-not-at-top
+        from tensorflow.python.keras.layers import deserialize
+
         # re-create the custom regularizer object from its config
         recurrent_regularizer = deserialize(
-            config.pop('recurrent_regularizer'),
-            custom_objects={'DynamicL2': DynamicL2})
-        config['recurrent_regularizer'] = recurrent_regularizer
+            config.pop("recurrent_regularizer"), custom_objects={"DynamicL2": DynamicL2}
+        )
+        config["recurrent_regularizer"] = recurrent_regularizer
         # pass it with the rest of the config into the constructor
         return cls(**config)
 
     def update_config(self, config):
         """Updates the configuration of the ClippedGRUCell.
-        
-        Updates configuration variables of the layer. 
+
+        Updates configuration variables of the layer.
         Primarily used for updating hyperparameters during PBT.
 
         Parameters
@@ -530,28 +537,30 @@ class ClippedGRUCell(GRUCell):
 
         """
 
-        self.clip_value.assign(config['clip_value'])
-        self.recurrent_regularizer.update_config({
-            'scale': config['l2_recurrent_weight'],
-        })
+        self.clip_value.assign(config["clip_value"])
+        self.recurrent_regularizer.update_config(
+            {
+                "scale": config["l2_recurrent_weight"],
+            }
+        )
 
 
 class KernelNormalizedDense(Dense):
-    """Applies a row-normalized transformation.
-    """
+    """Applies a row-normalized transformation."""
+
     def build(self, input_shape):
         """Creates the unnormalized kernel.
 
-        A wrapper around tf.keras.layers.Dense.build that 
+        A wrapper around tf.keras.layers.Dense.build that
         assigns the unnormalized kernel to a different variable.
         """
         super(KernelNormalizedDense, self).build(input_shape)
         self.unnormed_kernel = self.kernel
-    
+
     def call(self, inputs):
         """Normalizes the linear kernel before the transformation
-        
-        A wrapper around tf.keras.layers.Dense.call that 
+
+        A wrapper around tf.keras.layers.Dense.call that
         normalizes the kernel before applying the transfromation.
         """
         self.kernel = tf.nn.l2_normalize(self.unnormed_kernel, axis=0)
@@ -563,6 +572,7 @@ class DecoderCell(Layer):
     """An RNN cell that incorporates interactions between
     the generator and controller networks.
     """
+
     def __init__(self, cfg_node, **kwargs):
         """Creates the DecoderCell object
 
@@ -590,18 +600,20 @@ class DecoderCell(Layer):
         self.con_l2_recurrent_weight = cfg_node.TRAIN.L2.CON_SCALE
         self.gen_l2_recurrent_weight = cfg_node.TRAIN.L2.GEN_SCALE
         self.gen_initial_state = None
-        self.use_con = all([
-            ci_enc_dim > 0,
-            con_units > 0,
-            co_units > 0,
-        ])
+        self.use_con = all(
+            [
+                ci_enc_dim > 0,
+                con_units > 0,
+                co_units > 0,
+            ]
+        )
         self.output_size = self.state_size = DecoderState(
             gen_state=gen_units,
             con_state=con_units,
             co_mean=co_units,
             co_logvar=co_units,
             gen_input=co_units + ext_units,
-            factor=fac_units
+            factor=fac_units,
         )
         super(DecoderCell, self).__init__(**kwargs)
 
@@ -624,7 +636,7 @@ class DecoderCell(Layer):
                 bias_initializer=ones_zeros(self.con_units),
                 recurrent_regularizer=DynamicL2(self.con_l2_recurrent_weight),
                 reset_after=False,
-                name='con_gru_cell',
+                name="con_gru_cell",
                 clip_value=self.clip_value,
                 train_h0=True,
             )
@@ -632,12 +644,12 @@ class DecoderCell(Layer):
             self.co_mean_linear = Dense(
                 self.co_units,
                 kernel_initializer=variance_scaling,
-                name='co_mean_linear',
+                name="co_mean_linear",
             )
             self.co_logvar_linear = Dense(
                 self.co_units,
                 kernel_initializer=variance_scaling,
-                name='co_logvar_linear',
+                name="co_logvar_linear",
             )
         # add the generator
         self.gen_gru_cell = ClippedGRUCell(
@@ -647,14 +659,15 @@ class DecoderCell(Layer):
             bias_initializer=ones_zeros(self.gen_units),
             recurrent_regularizer=DynamicL2(self.gen_l2_recurrent_weight),
             reset_after=False,
-            name='gen_gru_cell',
+            name="gen_gru_cell",
             clip_value=self.clip_value,
             train_h0=False,
         )
-        self.fac_linear = KernelNormalizedDense(self.fac_units,
+        self.fac_linear = KernelNormalizedDense(
+            self.fac_units,
             kernel_initializer=variance_scaling,
             use_bias=False,
-            name='fac_linear'
+            name="fac_linear",
         )
         super(DecoderCell, self).build(input_shapes)
         self.built = True
@@ -666,12 +679,12 @@ class DecoderCell(Layer):
         ----------
         inputs : lfads_tf2.tuples.DecoderRNNInput
             A namedtuple containing the inputs to the decoder
-            RNN at a single time step, including controller 
-            inputs and external inputs. See DecoderRNNInput 
+            RNN at a single time step, including controller
+            inputs and external inputs. See DecoderRNNInput
             definition for more details.
         states : lfads_tf2.tuples.DecoderState
             A namedtuple containing the state of the decoder
-            RNN at a single time step. See DecoderState 
+            RNN at a single time step. See DecoderState
             definition for more details.
         training : bool, optional
             Whether to operate in training mode, by default False
@@ -679,7 +692,7 @@ class DecoderCell(Layer):
         Returns
         -------
         lfads_tf2.tuples.DecoderState
-            The state of the decoder cell after combining 
+            The state of the decoder cell after combining
             the current inputs with the previous state.
         """
 
@@ -720,11 +733,11 @@ class DecoderCell(Layer):
             gen_state, con_state, co_mean, co_logvar, gen_input, factor
         )
         return new_states, [new_states]
-    
+
     def setup_initial_state(self, state, state_drop):
         """Passes the initial states into the generator and sets dropout.
-        
-        A convenience method that makes the generator state available 
+
+        A convenience method that makes the generator state available
         to the `get_initial_state` function.
 
         Parameters
@@ -746,17 +759,19 @@ class DecoderCell(Layer):
         Returns
         -------
         lfads_tf2.tuples.DecoderState
-            The initial state of the DecoderCell. See DecoderState 
+            The initial state of the DecoderCell. See DecoderState
             definition for more details.
         """
         # Make sure the generator initial state has been computed
-        assert isinstance(self.gen_initial_state, tf.Tensor), \
-            "An initial state must be created for the generator."
+        assert isinstance(
+            self.gen_initial_state, tf.Tensor
+        ), "An initial state must be created for the generator."
         initial_factor = self.fac_linear(self.gen_state_drop)
         # Get the controller initial state
         if self.use_con:
             con_init = self.con_gru_cell.get_initial_state(
-                inputs=inputs, batch_size=batch_size, dtype=dtype)
+                inputs=inputs, batch_size=batch_size, dtype=dtype
+            )
         else:
             con_init = tf.zeros([batch_size, self.con_units])
         # Return the nested state
@@ -770,9 +785,9 @@ class DecoderCell(Layer):
         )
 
     def get_config(self):
-        """ Get the configuration for the DecoderCell.
+        """Get the configuration for the DecoderCell.
 
-        See the TensorFlow documentation for an explanation of serialization: 
+        See the TensorFlow documentation for an explanation of serialization:
         https://www.tensorflow.org/guide/keras/save_and_serialize#custom_objects
 
         Returns
@@ -780,18 +795,18 @@ class DecoderCell(Layer):
         dict
             A dictionary containing the configuration.
         """
-    
-        config = {'cfg_node': self.cfg_node}
+
+        config = {"cfg_node": self.cfg_node}
         base_config = super(DecoderCell, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
     @classmethod
     def from_config(cls, config):
-        """ Initialize a DecoderCell from this config.
+        """Initialize a DecoderCell from this config.
 
-        See the TensorFlow documentation for an explanation of serialization: 
+        See the TensorFlow documentation for an explanation of serialization:
         https://www.tensorflow.org/guide/keras/save_and_serialize#custom_objects
-        
+
         Returns
         -------
         lfads_tf2.layers.DecoderCell
@@ -802,8 +817,8 @@ class DecoderCell(Layer):
 
     def update_config(self, config):
         """Updates the configuration of the DecoderCell.
-        
-        Updates configuration variables of the layer. 
+
+        Updates configuration variables of the layer.
         Primarily used for updating hyperparameters during PBT.
 
         Parameters
@@ -813,20 +828,26 @@ class DecoderCell(Layer):
 
         """
 
-        self.cfg_node = node = config['cfg_node']
+        self.cfg_node = node = config["cfg_node"]
         self.dropout_rate.assign(node.MODEL.DROPOUT_RATE)
-        self.gen_gru_cell.update_config({
-            'clip_value': node.MODEL.CELL_CLIP,
-            'l2_recurrent_weight': node.TRAIN.L2.GEN_SCALE})
+        self.gen_gru_cell.update_config(
+            {
+                "clip_value": node.MODEL.CELL_CLIP,
+                "l2_recurrent_weight": node.TRAIN.L2.GEN_SCALE,
+            }
+        )
         if self.use_con:
-            self.con_gru_cell.update_config({
-                'clip_value': node.MODEL.CELL_CLIP,
-                'l2_recurrent_weight': node.TRAIN.L2.CON_SCALE})
+            self.con_gru_cell.update_config(
+                {
+                    "clip_value": node.MODEL.CELL_CLIP,
+                    "l2_recurrent_weight": node.TRAIN.L2.CON_SCALE,
+                }
+            )
 
 
 class AutoregressiveMultivariateNormal(tfd.Distribution):
-    """ Implements the prior distribution over controller outputs. 
-    """
+    """Implements the prior distribution over controller outputs."""
+
     def __init__(self, logtaus, lognvars, co_dim, name=None):
         """Creates an AutoregressiveMultivariateNormal (ARMVN) distribution.
 
@@ -846,10 +867,7 @@ class AutoregressiveMultivariateNormal(tfd.Distribution):
             reparameterization_type=tfd.FULLY_REPARAMETERIZED,
             validate_args=True,
             allow_nan_stats=False,
-            parameters={
-                'logtaus': logtaus,
-                'lognvars': lognvars
-            },
+            parameters={"logtaus": logtaus, "lognvars": lognvars},
             name=name,
         )
         self.logtaus = logtaus
@@ -857,8 +875,8 @@ class AutoregressiveMultivariateNormal(tfd.Distribution):
 
         step_spec = tf.TensorSpec(shape=[None, co_dim])
         self.step_log_prob = tf.function(
-            func=self._step_log_prob,
-            input_signature=[(step_spec, step_spec)])
+            func=self._step_log_prob, input_signature=[(step_spec, step_spec)]
+        )
 
     def _step_log_prob(self, step):
         """Computes the log probability at a given timestep.
@@ -866,9 +884,9 @@ class AutoregressiveMultivariateNormal(tfd.Distribution):
         Parameters
         ----------
         step : tuple of tf.Tensor
-            A tuple of a sample and the previous sample to 
+            A tuple of a sample and the previous sample to
             use for calculating the log probability.
-        
+
         Returns
         -------
         tf.Tensor
@@ -876,36 +894,36 @@ class AutoregressiveMultivariateNormal(tfd.Distribution):
         """
         samp, prev_samp = tf.nest.flatten(step)
         # calculate alphas and process variances
-        alphas = tf.math.exp(-1.0/tf.math.exp(self.logtaus))
-        logpvars = self.lognvars - tf.math.log(1-alphas**2)
+        alphas = tf.math.exp(-1.0 / tf.math.exp(self.logtaus))
+        logpvars = self.lognvars - tf.math.log(1 - alphas ** 2)
         # create a prior one step away from the observed sample
         first_sample = tf.reduce_all(tf.math.is_nan(prev_samp))
         if first_sample:
             means = 0.0
-            stddevs =  tf.math.exp(0.5*logpvars)
+            stddevs = tf.math.exp(0.5 * logpvars)
         else:
             # calculate the new means and variances
             transform = tfb.Affine(scale_diag=alphas)
             means = transform.forward(prev_samp)
-            stddevs = tf.math.exp(0.5*self.lognvars)
+            stddevs = tf.math.exp(0.5 * self.lognvars)
 
         # return the log probability for each time step
         prior = tfd.MultivariateNormalDiag(means, stddevs)
         return prior.log_prob(samp)
 
     def _log_prob(self, sample):
-        """ Returns the log probability of a batch of CO samples.
-        
+        """Returns the log probability of a batch of CO samples.
+
         Parameters
         ----------
         sample : tf.Tensor
-            A tensor of shape BxTxCO_DIM that represents samples 
+            A tensor of shape BxTxCO_DIM that represents samples
             of the controller output.
-        
+
         Returns
         -------
         tf.Tensor
-            A tensor of shape BATCH_SIZE indicating the 
+            A tensor of shape BATCH_SIZE indicating the
             log-likelihood of each controller output in the batch.
         """
         # create time-major pairs of samples and previous samples
@@ -917,12 +935,13 @@ class AutoregressiveMultivariateNormal(tfd.Distribution):
 
         # sum the log-likelihood across the time dimension
         all_log_p = tf.map_fn(
-            self.step_log_prob, 
+            self.step_log_prob,
             (time_major_samples, time_major_prev_samples),
             # parallel_iterations=50
-            dtype=tf.float32)
+            dtype=tf.float32,
+        )
         log_p = tf.reduce_sum(all_log_p, axis=0)
-        
+
         return log_p
 
     def _event_shape(self):
