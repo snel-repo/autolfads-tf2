@@ -72,12 +72,16 @@ class LFADS(Model):
 
         # Get the commit information for this lfads_tf2 code
         repo_path = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
-        repo = git.Repo(path=repo_path)
-        git_data = {
-            "commit": repo.head.object.hexsha,
-            "modified": [diff.b_path for diff in repo.index.diff(None)],
-            "untracked": repo.untracked_files,
-        }
+        try:
+            repo = git.Repo(path=repo_path)
+            git_data = {
+                "commit": repo.head.object.hexsha,
+                "modified": [diff.b_path for diff in repo.index.diff(None)],
+                "untracked": repo.untracked_files,
+            }
+        except git.exc.InvalidGitRepositoryError:
+            print("No `git` repo detected for `lfads_tf2`.")
+            git_data = {}
 
         if model_dir:  # Load existing model - model_dir should contain its own cfg
             print("Loading model from {}.".format(model_dir))
