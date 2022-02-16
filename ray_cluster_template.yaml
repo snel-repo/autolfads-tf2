@@ -26,27 +26,26 @@ idle_timeout_minutes: 5
 # and opens all the necessary ports to support the Ray cluster.
 # Empty string means disabled. Assumes Docker is installed.
 docker:
-    image: "" # e.g., tensorflow/tensorflow:1.5.0-py3
-    container_name: "" # e.g. ray_docker
-    # If true, pulls latest version of image. Otherwise, `docker run` will only pull the image
-    # if no cached version is present.
-    pull_before_run: True
-    run_options: []  # Extra options to pass into "docker run"
+  image: "" # e.g., tensorflow/tensorflow:1.5.0-py3
+  container_name: "" # e.g. ray_docker
+  # If true, pulls latest version of image. Otherwise, `docker run` will only pull the image
+  # if no cached version is present.
+  pull_before_run: True
+  run_options: [] # Extra options to pass into "docker run"
 
 # Local specific configuration.
 provider:
-    type: local
-    head_ip: neuron.bme.emory.edu # cortex.bme.emory.edu
-    worker_ips: 
-        - sulcus.bme.emory.edu
-        # - cortex.bme.emory.edu
-        # - synapse.bme.emory.edu
-        # - spike.bme.emory.edu
+  type: local
+  head_ip: <HEAD_IP>
+  worker_ips:
+    - <WORKER_IP_1>
+    - <WORKER_IP_2>
+    - <WORKER_IP_3>
 
 # How Ray will authenticate with newly launched nodes.
 auth:
-    ssh_user: <USER>
-    ssh_private_key: ~/.ssh/id_rsa
+  ssh_user: <USER>
+  ssh_private_key: ~/.ssh/id_rsa
 
 # Leave this empty.
 head_node: {}
@@ -56,10 +55,10 @@ worker_nodes: {}
 
 # Files or directories to copy to the head and worker nodes. The format is a
 # dictionary from REMOTE_PATH: LOCAL_PATH, e.g.
-file_mounts: {
+file_mounts: {}
 #    "/path1/on/remote/machine": "/path1/on/local/machine",
 #    "/path2/on/remote/machine": "/path2/on/local/machine",
-}
+# }
 
 # List of commands that will be run before `setup_commands`. If docker is
 # enabled, these commands will run outside the container and before docker
@@ -75,16 +74,16 @@ head_setup_commands: []
 # Custom commands that will be run on worker nodes after common setup.
 worker_setup_commands: []
 
-# NOTE: Modified the following commands to use the tf2-gpu environment 
+# NOTE: Modified the following commands to use the tf2-gpu environment
 # and to use specific ports that have been opened for this purpose
 # by Andrew Sedler (asedler3@gatech.edu)
 
 # Command to start ray on the head node. You don't need to change this.
 head_start_ray_commands:
-    - conda activate <CONDA-ENV> && ray stop
-    - conda activate <CONDA-ENV> && ulimit -c unlimited && ray start --head --redis-port=10000 --redis-shard-ports=10001 --node-manager-port=10002 --object-manager-port=10003 --gcs-server-port=10004 --min-worker-port=10005 --max-worker-port=10099 --autoscaling-config=~/ray_bootstrap_config.yaml
+  - conda activate <CONDA-ENV> && ray stop
+  - conda activate <CONDA-ENV> && ulimit -c unlimited && ray start --head --redis-port=10000 --redis-shard-ports=10001 --node-manager-port=10002 --object-manager-port=10003 --gcs-server-port=10004 --min-worker-port=10005 --max-worker-port=10099 --autoscaling-config=~/ray_bootstrap_config.yaml
 
 # Command to start ray on worker nodes. You don't need to change this.
 worker_start_ray_commands:
-    - conda activate <CONDA-ENV> && ray stop
-    - conda activate <CONDA-ENV> && ray start --address=$RAY_HEAD_IP:10000 --node-manager-port=10002 --object-manager-port=10003 --min-worker-port=10005 --max-worker-port=10099
+  - conda activate <CONDA-ENV> && ray stop
+  - conda activate <CONDA-ENV> && ray start --address=$RAY_HEAD_IP:10000 --node-manager-port=10002 --object-manager-port=10003 --min-worker-port=10005 --max-worker-port=10099
