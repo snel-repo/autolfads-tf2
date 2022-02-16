@@ -1,6 +1,4 @@
-from setuptools import setup, find_packages
-
-# NOTE: lfads_tf2 must be installed separately.
+from setuptools import find_packages, setup
 
 setup(
     name="tune_tf2",
