@@ -10,6 +10,7 @@ setup(
         "tensorflow-addons==0.6",
         "tensorboard==2.0.2",
         "yacs==0.1.6",
+        "PyYAML>=5.1",
         "numpy==1.18.1",
         "pandas==1.*",
         "matplotlib==3.1.3",
