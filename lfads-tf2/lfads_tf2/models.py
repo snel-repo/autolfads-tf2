@@ -1312,7 +1312,7 @@ class LFADS(Model):
             **{
                 "cur_epoch": cur_epoch,
                 "cur_step": self.cur_step.numpy(),
-                "max_epochs": cfg.MAX_EPOCHS - 1,
+                "max_epochs": cfg.MAX_EPOCHS,
                 "patience": self.cur_patience.numpy(),
                 "train_status": self.train_status,
                 "cur_lr": cur_lr,
