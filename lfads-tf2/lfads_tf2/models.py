@@ -64,11 +64,9 @@ class LFADS(Model):
         super(LFADS, self).__init__()
 
         # Check args
-        num_set = sum([x is not None for x in [cfg_node, cfg_path, model_dir]])
+        num_set = sum([x is not None for x in [cfg_node, cfg_path]])
         if num_set > 1:
-            raise ValueError(
-                "Only one of `cfg_node`, `cfg_path`, or `model_dir` may be set"
-            )
+            raise ValueError("Only one of `cfg_node` or `cfg_path` may be set")
 
         # Get the commit information for this lfads_tf2 code
         repo_path = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
@@ -100,6 +98,14 @@ class LFADS(Model):
                 ms_path = os.path.join(model_dir, "model_spec.yaml")
                 with open(ms_path, "w") as ms_file:
                     ms_file.write(cfg.dump())
+
+            # read additional config arguments
+            if cfg_node:
+                cfg.merge_from_other_cfg(cfg_node)
+            elif cfg_path:
+                cfg.merge_from_file(cfg_path)
+            cfg.TRAIN.DATA.DIR = os.path.expanduser(cfg.TRAIN.DATA.DIR)
+            cfg.TRAIN.MODEL_DIR = os.path.expanduser(cfg.TRAIN.MODEL_DIR)
             cfg.freeze()
 
             # check that code used to train the model matches this code
