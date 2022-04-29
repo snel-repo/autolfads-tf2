@@ -292,10 +292,21 @@ class Decoder(Layer):
         # create the decoding RNN
         self.rnn = RNN(cell, return_sequences=True, name='rnn')
         # create the mapping from factors to rates
-        self.rate_linear = Dense(mcfg.DATA_DIM,
+        ''' AA '''
+        # if mcfg.OUTPUT_DIST == 'zi-gamma':
+        self.zig = Dense(mcfg.DATA_DIM * 3,
             kernel_initializer=variance_scaling,
-            name='rate_linear'
-        )
+            name='zig')
+        
+        sigmoid_scale_init = tf.multiply(tf.ones(shape=[1,mcfg.DATA_DIM * 2]), 20.0)
+        self.sigmoid_scale = tf.Variable(sigmoid_scale_init,trainable=True,
+                                         name='sigmoid_scale',dtype=tf.float32)
+            
+        # else:
+        #     self.rate_linear = Dense(mcfg.DATA_DIM,
+        #         kernel_initializer=variance_scaling,
+        #         name='rate_linear'
+            # )
 
         # ===== AUTOGRAPH FUNCTIONS =====
         output_seq_len = mcfg.SEQ_LEN - mcfg.IC_ENC_SEQ_LEN
@@ -336,7 +347,7 @@ class Decoder(Layer):
             DecoderOutput for more detail.
 
         """
-
+        mcfg = self.cfg_node.MODEL
         batch_size = tf.shape(dec_input.ic_samp)[0]
         # calculate initial generator state and pass it to the RNN with dropout rate
         gen_init = self.ic_to_g0(dec_input.ic_samp)
@@ -353,11 +364,37 @@ class Decoder(Layer):
         gen_states, con_states, co_means, co_logvars, gen_inputs, factors = states
         co_stddevs = tf.exp(0.5 * co_logvars)
         # compute the rates
-        logrates = self.rate_linear(factors)
-        rates = tf.exp(logrates)
+        ''' AA '''
+        # if mcfg.OUTPUT_DIST == 'zi-gamma':
+            
+        output_size = mcfg.DATA_DIM*3
+        output_zig = self.zig(factors)
+        
+        gamma_size = tf.cast(output_size*(2/3), tf.int64)
+        q_size = tf.cast(output_size*(1/3), tf.int64)
+        output_gamma, output_q = tf.split( output_zig, [gamma_size, q_size], axis=1 ) #TODO Check axis
+        
+        output_q_nl = tf.sigmoid(output_q)
+        output_q_nl = tf.clip_by_value(output_q_nl, clip_value_min=1e-5, clip_value_max=1-1e-5)
+        
+        output_gamma_nl = tf.sigmoid(output_gamma) * self.sigmoid_scale
+        output_gamma_nl = tf.clip_by_value(output_gamma_nl, clip_value_min=1e-5, clip_value_max = self.sigmoid_scale-1e-5)
+        
+        alpha, scale = tf.split(output_gamma_nl, 2, axis=2)
+        beta = tf.divide(1.0, scale)
+        output_dist_params= tf.concat( [ alpha, scale, output_q_nl ], axis=2 )
+        
+        rates = tf.math.multiply(output_q_nl, tfd.Gamma( alpha, beta ).mean()) #TODO include this in decoder output
+        logrates = rates #temp
+        # else:
+        #     logrates = self.rate_linear(factors)
+            
+        #     rates = tf.exp(logrates)
 
         # return the output in an organized tuple
         output = DecoderOutput(
+            sigmoid_scale=self.sigmoid_scale,
+            output_dist_params=output_dist_params,
             rates=logrates if use_logrates else rates,
             co_means=co_means,
             co_stddevs=co_stddevs,

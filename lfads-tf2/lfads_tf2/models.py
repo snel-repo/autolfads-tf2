@@ -278,6 +278,9 @@ class LFADS(Model):
                     tf.math.log(cfg.MODEL.IC_PRIOR_VAR)), 
                 trainable=False, 
                 name='ic_prior_logvar')
+            ''' AA '''
+            self.gamma_prior = tf.Variable(
+                cfg.MODEL.GAMMA_PRIOR, trainable=False, name='gamma_prior')
             # create the CO prior variables
             trainable_decoder = not cfg.TRAIN.ENCODERS_ONLY
             if cfg.MODEL.CO_AUTOREG_PRIOR:
@@ -310,7 +313,7 @@ class LFADS(Model):
             cfg.TRAIN.KL.IC_WEIGHT, trainable=False, name='kl_ic_weight')
         self.kl_co_weight = tf.Variable(
             cfg.TRAIN.KL.CO_WEIGHT, trainable=False, name='kl_co_weight')
-
+        
         # ===== CREATE THE ENCODER AND DECODER =====
         self.encoder = Encoder(cfg)
         self.decoder = Decoder(cfg)
@@ -592,10 +595,15 @@ class LFADS(Model):
             training=self.training, 
             use_logrates=use_logrates
         )
-        rates, co_mean, co_stddev, factors, gen_states, \
+        # rates, co_mean, co_stddev, factors, gen_states, \
+        #     gen_init, gen_inputs, con_states = dec_output
+        ''' AA '''
+        sigmoid_scale, output_dist_params, rates, co_mean, co_stddev, factors, gen_states, \
             gen_init, gen_inputs, con_states = dec_output
 
         return LFADSOutput(
+            sigmoid_scale=sigmoid_scale,
+            output_dist_params=output_dist_params,
             rates=rates, 
             ic_means=ic_mean, 
             ic_stddevs=ic_stddev, 
@@ -760,11 +768,15 @@ class LFADS(Model):
                 data=heldin_data, 
                 sv_mask=batch.sv_mask, 
                 ext_input=batch.ext_input)
-            logrates, posterior_params, loss_mask = model_call(new_batch)
+            ''' AA '''
+            sigmoid_scale, output_dist_params, logrates, posterior_params, loss_mask = model_call(new_batch)
+            # logrates, posterior_params, loss_mask = model_call(new_batch)
             if self.sv_keep < 1:
                 # exclude the observed samples from the nll_heldout calculation
                 wt_heldout_mask = tf.cast(heldout_mask, tf.float32) / (1-self.sv_keep)
-                nll_heldout = self.neg_log_likelihood(maskable_data, logrates, wt_heldout_mask)
+                ''' AA '''
+                nll_heldout = self.neg_log_likelihood_zig(maskable_data, output_dist_params, wt_heldout_mask)
+                # nll_heldout = self.neg_log_likelihood(maskable_data, logrates, wt_heldout_mask)
             else:
                 nll_heldout = np.nan
             # record recon loss for heldout data
@@ -774,8 +786,10 @@ class LFADS(Model):
             }, batch_size=data.shape[0])
             # mask the loss for heldout data elements
             loss_mask = wt_heldin_mask * loss_mask
-
-            return logrates, posterior_params, loss_mask
+            
+            ''' AA '''
+            return sigmoid_scale, output_dist_params, logrates, posterior_params, loss_mask
+            # return logrates, posterior_params, loss_mask
 
         return sv_step
 
@@ -825,13 +839,17 @@ class LFADS(Model):
                 data=cd_input, 
                 sv_mask=batch.sv_mask, 
                 ext_input=batch.ext_input)
-            logrates, posterior_params, loss_mask = model_call(new_batch)
+            ''' AA '''
+            sigmoid_scale, output_dist_params, logrates, posterior_params, loss_mask = model_call(new_batch)
+            # logrates, posterior_params, loss_mask = model_call(new_batch)
             # block the gradients with respect to the masked outputs
             logrates = block_gradients(logrates, grad_mask)
             # compute loss across all data points
             loss_mask = tf.ones_like(logrates) * loss_mask
-
-            return logrates, posterior_params, loss_mask
+            
+            ''' AA '''
+            return sigmoid_scale, output_dist_params, logrates, posterior_params, loss_mask
+            # return logrates, posterior_params, loss_mask
 
         return cd_step
 
@@ -871,13 +889,17 @@ class LFADS(Model):
                 data=sb_masked_data, 
                 sv_mask=batch.sv_mask, 
                 ext_input=batch.ext_input)
-            logrates, posterior_params, loss_mask = model_call(new_batch)
+            ''' AA '''
+            sigmoid_scale, output_dist_params, logrates, posterior_params, loss_mask = model_call(new_batch)
+            # logrates, posterior_params, loss_mask = model_call(new_batch)
             # # block the gradients with respect to the masked outputs (redundant w/ loss masking)
             # logrates = block_gradients(logrates, ~nan_mask)
             # don't calculate loss on the missing data
             loss_mask = tf.cast(~nan_mask, tf.float32) * loss_mask
-
-            return logrates, posterior_params, loss_mask
+            
+            ''' AA '''
+            return sigmoid_scale, output_dist_params, logrates, posterior_params, loss_mask
+            # return logrates, posterior_params, loss_mask
 
         return sb_step
 
@@ -918,8 +940,10 @@ class LFADS(Model):
             output.co_stddevs)
         # don't mask any loss tensor elements
         loss_mask = tf.ones_like(output.rates)
-
-        return output.rates, posterior_params, loss_mask
+        
+        ''' AA '''
+        return output.sigmoid_scale, output.output_dist_params, output.rates, posterior_params, loss_mask
+        # return output.rates, posterior_params, loss_mask
 
 
     def neg_log_likelihood(self, data, logrates, wt_mask=None):
@@ -948,6 +972,7 @@ class LFADS(Model):
         """
         if wt_mask is None:
             wt_mask = tf.ones_like(data)
+    
         nll_all = tf.nn.log_poisson_loss(data, logrates, compute_full_loss=True)
         nll_masked = nll_all * wt_mask
         if self.cfg.TRAIN.NLL_MEAN:
@@ -957,8 +982,27 @@ class LFADS(Model):
             # Sum over inner dimensions, average over batch dimension
             nll = tf.reduce_mean(tf.reduce_sum(nll_masked, axis=[1,2]))
         return nll
-
-
+    
+    ''' AA '''
+    def neg_log_likelihood_zig(self, data, output_dist_params, wt_mask=None):
+        
+        if wt_mask is None:
+            wt_mask = tf.ones_like(data)
+        
+        s_min = 0.1
+        alpha, beta, q = tf.split(output_dist_params, 3, axis=2)
+        adjust_x = tf.where(tf.math.equal(data, 0.0), tf.ones_like(data), data-s_min)
+        loglikelihood_adj_gamma = tfd.Gamma( alpha, beta ).log_prob( adjust_x )
+        nll_all = tf.where(tf.math.equal(data, 0.0), tf.math.log(1-q), loglikelihood_adj_gamma+tf.math.log(q))
+        nll_masked = nll_all * wt_mask
+        if self.cfg.TRAIN.NLL_MEAN:
+            # Average over all elements of the data tensor
+            nll = tf.reduce_mean(nll_masked)
+        else:
+            # Sum over inner dimensions, average over batch dimension
+            nll = tf.reduce_mean(tf.reduce_sum(nll_masked, axis=[1,2]))
+        return nll
+        
     def weighted_kl_loss(self, ic_mean, ic_stddev, co_mean, co_stddev):
         """Computes the KL loss based on the priors.
         
@@ -1052,13 +1096,27 @@ class LFADS(Model):
         if self.training:
             with tf.GradientTape() as tape:
                 # perform the forward pass, using SV and / or CD as necessary
-                logrates, posterior_params, loss_mask = self.train_call(batch)
+                ''' AA '''
+                sigmoid_scale, output_dist_params, logrates, posterior_params, loss_mask = self.train_call(batch)
+                # logrates, posterior_params, loss_mask = self.train_call(batch)
                 # compute heldin recon loss
-                nll_heldin = self.neg_log_likelihood(recon_data, logrates, loss_mask)
-
-                rnn_losses = self.encoder.losses + self.decoder.losses
+                nll_heldin = self.neg_log_likelihood_zig(recon_data, output_dist_params, loss_mask)
+                # nll_heldin = self.neg_log_likelihood(recon_data, logrates, loss_mask)
+                
+                ''' AA '''
+                # add cost to penalize distance between trainable gamma scale and HP gamma_prior
+                l2_dist_cost = []
+                l2_dist_numel = []
+                for v in sigmoid_scale:
+                    numel = tf.reduce_prod(tf.concat(axis=0, values=tf.shape(v)))
+                    numel_f = tf.cast(numel, tf.float32)
+                    l2_dist_numel.append(numel_f)
+                    v_l2 = tf.reduce_sum((v-self.gamma_prior)*(v-self.gamma_prior))
+                    l2_dist_cost.append(0.5 * 0.0001 * v_l2)   
+                    
+                rnn_losses = self.encoder.losses + self.decoder.losses + tf.add_n(l2_dist_cost)
                 l2 = tf.reduce_sum(rnn_losses) / \
-                    (self.model_recurrent_size + tf.keras.backend.epsilon())
+                    (self.model_recurrent_size + tf.add_n(l2_dist_numel) + tf.keras.backend.epsilon())
                 kl = self.weighted_kl_loss(*posterior_params)
 
                 loss = nll_heldin + self.l2_ramping_weight * l2 \
@@ -1091,13 +1149,27 @@ class LFADS(Model):
         # ----- VALIDATION STEP -----
         else:
             # perform the forward pass through the model
-            logrates, posterior_params, loss_mask = self.val_call(batch)
+            ''' AA '''
+            sigmoid_scale, output_dist_params, logrates, posterior_params, loss_mask = self.val_call(batch)
+            # logrates, posterior_params, loss_mask = self.val_call(batch)
             # compute the heldin recon loss
-            nll_heldin = self.neg_log_likelihood(recon_data, logrates, loss_mask)
-
-            rnn_losses = self.encoder.losses + self.decoder.losses
+            nll_heldin = self.neg_log_likelihood_zig(recon_data, output_dist_params, loss_mask)
+            # nll_heldin = self.neg_log_likelihood(recon_data, logrates, loss_mask)
+            
+            ''' AA '''
+            # add cost to penalize distance between trainable gamma scale and HP gamma_prior
+            l2_dist_cost = []
+            l2_dist_numel = []
+            for v in sigmoid_scale:
+                numel = tf.reduce_prod(tf.concat(axis=0, values=tf.shape(v)))
+                numel_f = tf.cast(numel, tf.float32)
+                l2_dist_numel.append(numel_f)
+                v_l2 = tf.reduce_sum((v-self.gamma_prior)*(v-self.gamma_prior))
+                l2_dist_cost.append(0.5 * 0.0001 * v_l2)    
+            
+            rnn_losses = self.encoder.losses + self.decoder.losses + tf.add_n(l2_dist_cost)
             l2 = tf.reduce_sum(rnn_losses) / \
-                (self.model_recurrent_size + tf.keras.backend.epsilon())
+                (self.model_recurrent_size + tf.add_n(l2_dist_numel) + tf.keras.backend.epsilon())
             kl = self.weighted_kl_loss(*posterior_params)
 
             loss = nll_heldin + self.l2_ramping_weight * l2 \
@@ -1735,9 +1807,13 @@ class LFADS(Model):
             # collect the outputs for all batches and split them up into the appropriate variables
             all_outputs = list(zip(*all_outputs)) # transpose the list / tuple
             all_outputs = [np.concatenate(t, axis=0) for t in all_outputs]
-            rates, co_means, co_stddevs, factors, gen_states, \
+            ''' AA '''
+            sigmoid_scale, output_dist_params, rates, co_means, co_stddevs, factors, gen_states, \
                 gen_init, gen_inputs, con_states, \
                 ic_post_mean, ic_post_logvar = all_outputs
+            # rates, co_means, co_stddevs, factors, gen_states, \
+            #     gen_init, gen_inputs, con_states, \
+            #     ic_post_mean, ic_post_logvar = all_outputs
 
             # return the output in an organized tuple
             samp_out = SamplingOutput(

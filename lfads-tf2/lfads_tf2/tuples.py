@@ -54,6 +54,8 @@ DecoderState = namedtuple(
 
 DecoderOutput = namedtuple(
     'DecoderOutput', [
+        'sigmoid_scale',
+        'output_dist_params', # Output distribution parameters
         'rates', # rate estimates, BxTxDATA_DIM
         'co_means', # controller output means, BxTxCO_DIM
         'co_stddevs', # controller output stddevs, BxTxCO_DIM
@@ -72,6 +74,8 @@ LFADSInput = namedtuple(
 
 LFADSOutput = namedtuple(
     'LFADSOutput', [
+        'sigmoid_scale',
+        'output_dist_params',
         'rates', # rate estimates, BxTxDATA_DIM
         'ic_means', # means for the IC distributions, BxIC_DIM
         'ic_stddevs', # stddev for the IC distributions, BxIC_DIM
