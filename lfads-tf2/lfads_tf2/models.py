@@ -1105,14 +1105,10 @@ class LFADS(Model):
                 
                 ''' AA '''
                 # add cost to penalize distance between trainable gamma scale and HP gamma_prior
-                l2_dist_cost = []
-                l2_dist_numel = []
-                for v in sigmoid_scale:
-                    numel = tf.reduce_prod(tf.concat(axis=0, values=tf.shape(v)))
-                    numel_f = tf.cast(numel, tf.float32)
-                    l2_dist_numel.append(numel_f)
-                    v_l2 = tf.reduce_sum((v-self.gamma_prior)*(v-self.gamma_prior))
-                    l2_dist_cost.append(0.5 * 0.0001 * v_l2)   
+                numel = tf.reduce_prod(tf.concat(axis=0, values=tf.shape(sigmoid_scale)))
+                l2_dist_numel = tf.cast(numel, tf.float32)
+                v_l2 = tf.reduce_sum((sigmoid_scale-self.gamma_prior)*(sigmoid_scale-self.gamma_prior))
+                l2_dist_cost = 0.5 * 0.0001 * v_l2
                     
                 rnn_losses = self.encoder.losses + self.decoder.losses + tf.add_n(l2_dist_cost)
                 l2 = tf.reduce_sum(rnn_losses) / \
@@ -1158,14 +1154,10 @@ class LFADS(Model):
             
             ''' AA '''
             # add cost to penalize distance between trainable gamma scale and HP gamma_prior
-            l2_dist_cost = []
-            l2_dist_numel = []
-            for v in sigmoid_scale:
-                numel = tf.reduce_prod(tf.concat(axis=0, values=tf.shape(v)))
-                numel_f = tf.cast(numel, tf.float32)
-                l2_dist_numel.append(numel_f)
-                v_l2 = tf.reduce_sum((v-self.gamma_prior)*(v-self.gamma_prior))
-                l2_dist_cost.append(0.5 * 0.0001 * v_l2)    
+            numel = tf.reduce_prod(tf.concat(axis=0, values=tf.shape(sigmoid_scale)))
+            l2_dist_numel = tf.cast(numel, tf.float32)
+            v_l2 = tf.reduce_sum((sigmoid_scale-self.gamma_prior)*(sigmoid_scale-self.gamma_prior))
+            l2_dist_cost = 0.5 * 0.0001 * v_l2
             
             rnn_losses = self.encoder.losses + self.decoder.losses + tf.add_n(l2_dist_cost)
             l2 = tf.reduce_sum(rnn_losses) / \
@@ -1816,7 +1808,10 @@ class LFADS(Model):
             #     ic_post_mean, ic_post_logvar = all_outputs
 
             # return the output in an organized tuple
+            ''' AA '''
             samp_out = SamplingOutput(
+                sigmoid_scale=sigmoid_scale,
+                output_dist_params=output_dist_params,
                 rates=rates, 
                 factors=factors, 
                 gen_states=gen_states, 
