@@ -75,3 +75,21 @@ def train_ridge_regression(X, y, l2=0):
     temp2 = np.dot(temp,X.T)
     W = np.dot(temp2,y)
     return W
+
+def compute_zig_mean(zig_params, s_min, fs):
+    
+    ''' INPUTS
+        zig_params     -- Previously collapsed data. Size: [3*n_neurons, n_timesteps, n_trials]
+        s_min          -- minimum calcium event size. Scalar
+        fs             -- Sampling rate in Hz. Scalar
+    
+        OUTPUT
+        rates          -- Estimated event rates. Size: [n_neurons, n_timesteps, n_trials]
+    '''
+    n_chs = zig_params.shape()[0]/3
+    shape = zig_params[0:n_chs-1,:,:]
+    scale = zig_params[n_chs:2*n_chs-1,:,:]
+    q = zig_params[2*n_chs:-1,:,:]
+    rates = fs*(np.multiply(q,(np.multiply(shape,scale)+s_min))) 
+    
+    return rates, shape, scale, q
