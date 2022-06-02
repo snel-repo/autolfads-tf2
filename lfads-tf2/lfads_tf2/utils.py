@@ -139,6 +139,9 @@ def chop_data(data, overlap, window):
 
     """
 
+    if overlap>window/2:
+        raise ValueError("Overlap must be less than half the window size.")
+
     shape = (
         int((data.shape[0] - window) / (window - overlap)) + 1,
         window,
@@ -201,6 +204,9 @@ def merge_chops(data, overlap, orig_len=None, smooth_pwr=2):
 
     merged = []
     full_weight_len = data.shape[1] - 2 * overlap
+
+    assert full_weight_len>=0, "merge_chops: overlap cannot be larger than half of window size"
+
     # Create x-values for the ramp
     x = (
         np.linspace(1 / overlap, 1 - 1 / overlap, overlap)
