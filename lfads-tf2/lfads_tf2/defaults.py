@@ -2,8 +2,8 @@ from os import path
 
 from yacs.config import CfgNode as CN
 
-repo_path = path.dirname(path.realpath(__file__))
-DEFAULT_CONFIG_DIR = path.join(repo_path, "config")
+repo_path = path.dirname(path.dirname(path.dirname(path.realpath(__file__))))
+DEFAULT_CONFIG_DIR = path.join(repo_path, "configs")
 
 
 # -----------------------------------------------------------------------------
@@ -14,8 +14,12 @@ _C = CN()
 _C.MODEL = CN()
 # The dimension of the output distribution (i.e. number of neurons).
 _C.MODEL.DATA_DIM = 50
+# The number of neurons to hold out for co-smoothing
+_C.MODEL.CS_DIM = 0
 # The length of the input sequences.
 _C.MODEL.SEQ_LEN = 100
+# The number of timestemps to hold out for forward prediction
+_C.MODEL.FP_LEN = 0
 # The number of time steps to set aside for determining IC's
 _C.MODEL.IC_ENC_SEQ_LEN = 0
 # The number of external inputs to be fed into the LFADS model.

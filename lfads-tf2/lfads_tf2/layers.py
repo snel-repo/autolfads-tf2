@@ -53,8 +53,12 @@ class Encoder(Layer):
             ci_enc_dim = mcfg.CI_ENC_DIM
             ci_enc_cell = ClippedGRUCell(
                 ci_enc_dim,
-                kernel_initializer=make_variance_scaling(ci_enc_dim + mcfg.DATA_DIM),
-                recurrent_initializer=make_variance_scaling(ci_enc_dim + mcfg.DATA_DIM),
+                kernel_initializer=make_variance_scaling(
+                    ci_enc_dim + (mcfg.DATA_DIM - mcfg.CS_DIM)
+                ),
+                recurrent_initializer=make_variance_scaling(
+                    ci_enc_dim + (mcfg.DATA_DIM - mcfg.CS_DIM)
+                ),
                 bias_initializer=ones_zeros(ci_enc_dim),
                 recurrent_regularizer=DynamicL2(cfg_node.TRAIN.L2.CI_ENC_SCALE),
                 reset_after=False,
@@ -70,8 +74,12 @@ class Encoder(Layer):
         ic_enc_dim = mcfg.IC_ENC_DIM
         ic_enc_cell = ClippedGRUCell(
             ic_enc_dim,
-            kernel_initializer=make_variance_scaling(ic_enc_dim + mcfg.DATA_DIM),
-            recurrent_initializer=make_variance_scaling(ic_enc_dim + mcfg.DATA_DIM),
+            kernel_initializer=make_variance_scaling(
+                ic_enc_dim + (mcfg.DATA_DIM - mcfg.CS_DIM)
+            ),
+            recurrent_initializer=make_variance_scaling(
+                ic_enc_dim + (mcfg.DATA_DIM - mcfg.CS_DIM)
+            ),
             bias_initializer=ones_zeros(ic_enc_dim),
             recurrent_regularizer=DynamicL2(cfg_node.TRAIN.L2.IC_ENC_SCALE),
             reset_after=False,
@@ -158,12 +166,18 @@ class Encoder(Layer):
         # compute the generator IC's
         data = self.dropout(data, training)
         # option to use separate segment for IC encoding
-        if mcfg.IC_ENC_SEQ_LEN > 0:
-            ic_enc_data = data[:, : mcfg.IC_ENC_SEQ_LEN, :]
-            ci_enc_data = data[:, mcfg.IC_ENC_SEQ_LEN :, :]
+        if mcfg.FP_LEN > 0:
+            ic_enc_data = data[:, : -mcfg.FP_LEN, :]
+            ci_enc_data = data[:, : -mcfg.FP_LEN, :]
         else:
             ic_enc_data = data
             ci_enc_data = data
+        if mcfg.IC_ENC_SEQ_LEN > 0:
+            ic_enc_data = ic_enc_data[:, : mcfg.IC_ENC_SEQ_LEN, :]
+            ci_enc_data = ci_enc_data[:, mcfg.IC_ENC_SEQ_LEN :, :]
+        if mcfg.CS_DIM > 0:
+            ic_enc_data = ic_enc_data[:, :, : -mcfg.CS_DIM]
+            ci_enc_data = ci_enc_data[:, :, : -mcfg.CS_DIM]
         # tile the initial states so they look like the data and unstack fw and bw
         ic_enc_h0 = tf.unstack(tf.tile(self.ic_enc_h0, [len(data), 1, 1]), axis=1)
         # choose subset of points for determining IC
@@ -178,15 +192,15 @@ class Encoder(Layer):
             ci_enc_h0 = tf.unstack(tf.tile(self.ci_enc_h0, [len(data), 1, 1]), axis=1)
             # compute encodings for the controller
             ci_fwd, ci_bwd = self.ci_enc_bigru(ci_enc_data, initial_state=ci_enc_h0)
-            ci_len = seq_len - mcfg.IC_ENC_SEQ_LEN
+            ci_len = seq_len - mcfg.FP_LEN - mcfg.IC_ENC_SEQ_LEN
             # add a lag to the controller input
             ci_fwd = tf.pad(ci_fwd, [[0, 0], [mcfg.CI_LAG, 0], [0, 0]])
             ci_bwd = tf.pad(ci_bwd, [[0, 0], [0, mcfg.CI_LAG], [0, 0]])
             # merge the forward and backward passes
             ci = tf.concat(
                 [
-                    ci_fwd[:, :ci_len, :],
-                    ci_bwd[:, -ci_len:, :],
+                    tf.pad(ci_fwd[:, :ci_len, :], [[0, 0], [0, mcfg.FP_LEN], [0, 0]]),
+                    tf.pad(ci_bwd[:, -ci_len:, :], [[0, 0], [0, mcfg.FP_LEN], [0, 0]]),
                 ],
                 axis=-1,
             )

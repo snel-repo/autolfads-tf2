@@ -1,8 +1,3 @@
-from os import path
-
-repo_path = path.dirname(path.realpath(__file__))
-DEFAULT_CONFIG_DIR = path.join(repo_path, "config")
-
 # contains data about general status of PBT optimization
 PBT_CSV = "pbt_state.csv"
 # contains data about which models are exploited
