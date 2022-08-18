@@ -1,7 +1,7 @@
 # Config for Lorenz with Regularization
 MODEL:
-  DATA_DIM: 29
-  SEQ_LEN: 50
+  DATA_DIM: 90
+  SEQ_LEN: 278
   IC_ENC_DIM: 100
   CI_ENC_DIM: 64
   CON_DIM: 64

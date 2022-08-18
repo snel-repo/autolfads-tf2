@@ -12,7 +12,8 @@ from lfads_tf2.regularizers import DynamicL2
 from lfads_tf2.tuples import EncoderOutput, DecoderInput, \
     DecoderRNNInput, DecoderState, DecoderOutput
 from lfads_tf2.initializers import variance_scaling, make_variance_scaling, ones_zeros
-
+import pdb
+from tensorflow.keras.initializers import RandomNormal
 
 class Encoder(Layer):
     """
@@ -295,7 +296,7 @@ class Decoder(Layer):
         ''' AA '''
         # if mcfg.OUTPUT_DIST == 'zi-gamma':
         self.zig = Dense(mcfg.DATA_DIM * 3,
-            kernel_initializer=variance_scaling,
+            kernel_initializer=RandomNormal(mean=0.0, stddev=1.0 / np.sqrt(float(mcfg.FAC_DIM))),
             name='zig')
         
         sigmoid_scale_init = tf.multiply(tf.ones(shape=[1,mcfg.DATA_DIM * 2]), 20.0)
@@ -372,20 +373,24 @@ class Decoder(Layer):
         
         gamma_size = tf.cast(output_size*(2/3), tf.int64)
         q_size = tf.cast(output_size*(1/3), tf.int64)
-        output_gamma, output_q = tf.split( output_zig, [gamma_size, q_size], axis=1 ) #TODO Check axis
+        output_gamma, output_q = tf.split( output_zig, [gamma_size, q_size], axis=2 ) #TODO Check axis
         
         output_q_nl = tf.sigmoid(output_q)
+        #pdb.set_trace()
         output_q_nl = tf.clip_by_value(output_q_nl, clip_value_min=1e-5, clip_value_max=1-1e-5)
-        
+        #pdb.set_trace()
+
         output_gamma_nl = tf.sigmoid(output_gamma) * self.sigmoid_scale
+        #pdb.set_trace()
         output_gamma_nl = tf.clip_by_value(output_gamma_nl, clip_value_min=1e-5, clip_value_max = self.sigmoid_scale-1e-5)
-        
+        #pdb.set_trace()
+
         alpha, scale = tf.split(output_gamma_nl, 2, axis=2)
         beta = tf.divide(1.0, scale)
         output_dist_params= tf.concat( [ alpha, scale, output_q_nl ], axis=2 )
         
-        rates = tf.math.multiply(output_q_nl, tfd.Gamma( alpha, beta ).mean()) #TODO include this in decoder output
-        logrates = rates #temp
+        logrates = tf.math.multiply(output_q_nl, tfd.Gamma( alpha, beta ).mean()) #TODO include this in decoder output
+        rates = tf.exp(logrates) #temp
         # else:
         #     logrates = self.rate_linear(factors)
             

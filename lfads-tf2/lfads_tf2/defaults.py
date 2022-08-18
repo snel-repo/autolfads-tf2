@@ -39,6 +39,7 @@ _C.MODEL.IC_PRIOR_VAR = 0.1 # The prior variance of IC's
 _C.MODEL.IC_POST_VAR_MIN = 0.0001 # The minimum variance allowed for IC posteriors.
 _C.MODEL.CELL_CLIP = 5.0 # Max absolute value of the GRU hidden states
 _C.MODEL.CI_LAG = 1 # Number of bins to delay the controller input
+_C.MODEL.GAMMA_PRIOR = 20.0
 
 _C.TRAIN = CN()
 

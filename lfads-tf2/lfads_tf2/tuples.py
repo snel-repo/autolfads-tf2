@@ -90,7 +90,6 @@ LFADSOutput = namedtuple(
 
 SamplingOutput = namedtuple(
     'SamplingOutput', [
-        'sigmoid_scale',
         'output_dist_params',
         'rates', # rate estimates, BxTxDATA_DIM
         'factors', # latent factors produced by generator, BxTxFAC_DIM

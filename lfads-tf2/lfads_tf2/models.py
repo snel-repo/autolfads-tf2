@@ -24,7 +24,7 @@ from lfads_tf2.tuples import LoadableData, BatchInput, DecoderInput, \
 from lfads_tf2.layers import Encoder, Decoder, AutoregressiveMultivariateNormal
 from lfads_tf2.initializers import variance_scaling
 from lfads_tf2.regularizers import DynamicL2
-
+import pdb
 
 def block_gradients(input_data, keep_mask):
     keep_mask = tf.cast(keep_mask, tf.float32)
@@ -66,14 +66,14 @@ class LFADS(Model):
                 "Only one of `cfg_node`, `cfg_path`, or `model_dir` may be set")
 
         # Get the commit information for this lfads_tf2 code
-        repo_path = os.path.realpath(
-            os.path.join(os.path.dirname(__file__), '..'))
-        repo = git.Repo(path=repo_path)
-        git_data = {
-            'commit': repo.head.object.hexsha,
-            'modified': [diff.b_path for diff in repo.index.diff(None)],
-            'untracked': repo.untracked_files,
-        }
+       # repo_path = os.path.realpath(
+       #     os.path.join(os.path.dirname(__file__), '..'))
+       # repo = git.Repo(path=repo_path)
+       # git_data = {
+        #    'commit': repo.head.object.hexsha,
+        #    'modified': [diff.b_path for diff in repo.index.diff(None)],
+        #    'untracked': repo.untracked_files,
+        #}
 
         if model_dir: # Load existing model - model_dir should contain its own cfg
             print("Loading model from {}.".format(model_dir))
@@ -94,13 +94,13 @@ class LFADS(Model):
             cfg.freeze()
 
             # check that code used to train the model matches this code
-            git_data_path = os.path.join(model_dir, 'git_data.yaml')
-            trained_git_data = yaml.full_load(open(git_data_path))
-            if trained_git_data != git_data:
-                print(
-                    'This `lfads_tf2` may not match the one '
-                    'used to create the model.'
-                )
+         #   git_data_path = os.path.join(model_dir, 'git_data.yaml')
+         #   trained_git_data = yaml.full_load(open(git_data_path))
+         #   if trained_git_data != git_data:
+         #       print(
+         #           'This `lfads_tf2` may not match the one '
+         #           'used to create the model.'
+         #       )
             self.is_trained = True
             self.from_existing = True
         else: # Fresh model
@@ -141,9 +141,9 @@ class LFADS(Model):
                 raise
 
             # Save the git commit information
-            git_data_path = os.path.join(model_dir, 'git_data.yaml')
-            with open(git_data_path, 'w') as git_data_file:
-                yaml.dump(git_data, git_data_file)
+          #  git_data_path = os.path.join(model_dir, 'git_data.yaml')
+           # with open(git_data_path, 'w') as git_data_file:
+            #    yaml.dump(git_data, git_data_file)
 
             # Create the model from the config file - must happen after model directory handling
             # because creation of the SummaryWriter automatically creates the model directory.
@@ -990,7 +990,8 @@ class LFADS(Model):
             wt_mask = tf.ones_like(data)
         
         s_min = 0.1
-        alpha, beta, q = tf.split(output_dist_params, 3, axis=2)
+        alpha, scale, q = tf.split(output_dist_params, 3, axis=2)
+        beta = tf.divide(1.0, scale)
         adjust_x = tf.where(tf.math.equal(data, 0.0), tf.ones_like(data), data-s_min)
         loglikelihood_adj_gamma = tfd.Gamma( alpha, beta ).log_prob( adjust_x )
         nll_all = tf.where(tf.math.equal(data, 0.0), tf.math.log(1-q), loglikelihood_adj_gamma+tf.math.log(q))
@@ -1100,19 +1101,21 @@ class LFADS(Model):
                 sigmoid_scale, output_dist_params, logrates, posterior_params, loss_mask = self.train_call(batch)
                 # logrates, posterior_params, loss_mask = self.train_call(batch)
                 # compute heldin recon loss
-                nll_heldin = self.neg_log_likelihood_zig(recon_data, output_dist_params, loss_mask)
+                nll_heldin = -self.neg_log_likelihood_zig(recon_data, output_dist_params, loss_mask)
                 # nll_heldin = self.neg_log_likelihood(recon_data, logrates, loss_mask)
                 
                 ''' AA '''
                 # add cost to penalize distance between trainable gamma scale and HP gamma_prior
                 numel = tf.reduce_prod(tf.concat(axis=0, values=tf.shape(sigmoid_scale)))
+                #pdb.set_trace()
                 l2_dist_numel = tf.cast(numel, tf.float32)
                 v_l2 = tf.reduce_sum((sigmoid_scale-self.gamma_prior)*(sigmoid_scale-self.gamma_prior))
                 l2_dist_cost = 0.5 * 0.0001 * v_l2
+                #pdb.set_trace()
                     
-                rnn_losses = self.encoder.losses + self.decoder.losses + tf.add_n(l2_dist_cost)
+                rnn_losses = self.encoder.losses + self.decoder.losses + l2_dist_cost
                 l2 = tf.reduce_sum(rnn_losses) / \
-                    (self.model_recurrent_size + tf.add_n(l2_dist_numel) + tf.keras.backend.epsilon())
+                    (self.model_recurrent_size + l2_dist_numel + tf.keras.backend.epsilon())
                 kl = self.weighted_kl_loss(*posterior_params)
 
                 loss = nll_heldin + self.l2_ramping_weight * l2 \
@@ -1149,7 +1152,7 @@ class LFADS(Model):
             sigmoid_scale, output_dist_params, logrates, posterior_params, loss_mask = self.val_call(batch)
             # logrates, posterior_params, loss_mask = self.val_call(batch)
             # compute the heldin recon loss
-            nll_heldin = self.neg_log_likelihood_zig(recon_data, output_dist_params, loss_mask)
+            nll_heldin = -self.neg_log_likelihood_zig(recon_data, output_dist_params, loss_mask)
             # nll_heldin = self.neg_log_likelihood(recon_data, logrates, loss_mask)
             
             ''' AA '''
@@ -1159,9 +1162,9 @@ class LFADS(Model):
             v_l2 = tf.reduce_sum((sigmoid_scale-self.gamma_prior)*(sigmoid_scale-self.gamma_prior))
             l2_dist_cost = 0.5 * 0.0001 * v_l2
             
-            rnn_losses = self.encoder.losses + self.decoder.losses + tf.add_n(l2_dist_cost)
+            rnn_losses = self.encoder.losses + self.decoder.losses + l2_dist_cost
             l2 = tf.reduce_sum(rnn_losses) / \
-                (self.model_recurrent_size + tf.add_n(l2_dist_numel) + tf.keras.backend.epsilon())
+                (self.model_recurrent_size + l2_dist_numel + tf.keras.backend.epsilon())
             kl = self.weighted_kl_loss(*posterior_params)
 
             loss = nll_heldin + self.l2_ramping_weight * l2 \
@@ -1784,7 +1787,10 @@ class LFADS(Model):
                 output_samples_merged = self.decoder.graph_call(dec_input)
                 
                 # average the outputs across samples
-                output_samples = [split_samp_and_batch(t, len(data)) for t in output_samples_merged]
+                #output_samples = [split_samp_and_batch(t, len(data)) for t in output_samples_merged]
+                output_samples = []
+                for t in range(1,len(output_samples_merged)):
+                    output_samples.append(split_samp_and_batch(output_samples_merged[t], len(data)))
                 output = [np.mean(t, axis=0) for t in output_samples]
 
                 # aggregate for each batch
@@ -1800,7 +1806,7 @@ class LFADS(Model):
             all_outputs = list(zip(*all_outputs)) # transpose the list / tuple
             all_outputs = [np.concatenate(t, axis=0) for t in all_outputs]
             ''' AA '''
-            sigmoid_scale, output_dist_params, rates, co_means, co_stddevs, factors, gen_states, \
+            output_dist_params, rates, co_means, co_stddevs, factors, gen_states, \
                 gen_init, gen_inputs, con_states, \
                 ic_post_mean, ic_post_logvar = all_outputs
             # rates, co_means, co_stddevs, factors, gen_states, \
@@ -1810,7 +1816,6 @@ class LFADS(Model):
             # return the output in an organized tuple
             ''' AA '''
             samp_out = SamplingOutput(
-                sigmoid_scale=sigmoid_scale,
                 output_dist_params=output_dist_params,
                 rates=rates, 
                 factors=factors, 
